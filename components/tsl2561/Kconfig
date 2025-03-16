@@ -1,0 +1,38 @@
+menu "TSL-2561 driver"
+
+    config TSL2561_ENABLE
+        bool "Enable CFG Controller"
+        default "n"
+        help
+            Enable TSL-2561 driver
+
+    choice TSL2561_LOG_LEVEL
+        bool "Log level"
+        default TSL2561_LOG_DEFAULT_LEVEL_INFO
+        help
+            Specify how much output to see in logs by default.
+
+        config TSL2561_LOG_DEFAULT_LEVEL_NONE
+            bool "No output"
+        config TSL2561_LOG_DEFAULT_LEVEL_ERROR
+            bool "Error"
+        config TSL2561_LOG_DEFAULT_LEVEL_WARN
+            bool "Warning"
+        config TSL2561_LOG_DEFAULT_LEVEL_INFO
+            bool "Info"
+        config TSL2561_LOG_DEFAULT_LEVEL_DEBUG
+            bool "Debug"
+        config TSL2561_LOG_DEFAULT_LEVEL_VERBOSE
+            bool "Verbose"
+    endchoice
+
+    config TSL2561_LOG_LEVEL
+        int
+        default 0 if TSL2561_LOG_DEFAULT_LEVEL_NONE
+        default 1 if TSL2561_LOG_DEFAULT_LEVEL_ERROR
+        default 2 if TSL2561_LOG_DEFAULT_LEVEL_WARN
+        default 3 if TSL2561_LOG_DEFAULT_LEVEL_INFO
+        default 4 if TSL2561_LOG_DEFAULT_LEVEL_DEBUG
+        default 5 if TSL2561_LOG_DEFAULT_LEVEL_VERBOSE
+
+endmenu
