@@ -92,24 +92,12 @@
 
 typedef enum {
   PART_TSL2560CS        = 0x00,
-  PART_TSL2561CS        = 0x01,
-  PART_TSL2560T_FN_CL   = 0x04,
-  PART_TSL2561T_FN_CL   = 0x05,
+  PART_TSL2561CS        = 0x10,
+  PART_TSL2560T_FN_CL   = 0x40,
+  PART_TSL2561T_FN_CL   = 0x50,
 
   PART_TSL256X_UNKNOWN  = 0xFF
 } tsl256x_partno_e;
-
-typedef enum {
-  GAIN_1X   = 0,
-  GAIN_10X  = 1
-} tsl256x_gain_e;
-
-typedef enum {
-  INTEG_13MS    = 0,
-  INTEG_101MS,
-  INTEG_402MS,
-  INTEG_NA
-} tsl256x_integ_e;
 
 typedef struct tsl2561_s {
   i2c_master_bus_handle_t bus;
@@ -289,16 +277,15 @@ static esp_err_t tsl2561_readId(const tsl2561_t handle) {
     ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
-  handle->partno  = (data & 0xF0) >> 4;
+  handle->partno  = data & 0xF0;
   handle->revno   = data & 0x0F;
-
+  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
 /**
- * @brief Read Timing Register (PARTNO & REVNO)
+ * @brief Read Timing Register (GAIN & INTEG)
  *
  * @param handle
  * @return esp_err_t
@@ -319,10 +306,67 @@ static esp_err_t tsl2561_readTiming(const tsl2561_t handle) {
     ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
-  handle->gain  = (data & 0x1) >> 4;
+  handle->gain  = data & 0x10;
   handle->integ = data & 0x03;
-  
+  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+/**
+ * @brief Write Gain
+ *
+ * @param handle
+ * @param gain
+ * @return esp_err_t
+ */
+static esp_err_t tsl2561_writeGain(const tsl2561_t handle, const tsl256x_gain_e gain) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_TIMING };
+  uint8_t data = handle->integ | gain;
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(handle: %p, gain: 0x%02X)", __func__, handle, gain);
+  result = tsl2561_write(handle, &cmd, 1);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    return result;
+  }
+  result = tsl2561_write(handle, &data, 1);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+    return result;
+  }
+  handle->gain  = gain;
+  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+/**
+ * @brief Write Gain
+ *
+ * @param handle
+ * @param time
+ * @return esp_err_t
+ */
+static esp_err_t tsl2561_WriteIntegrationTime(const tsl2561_t handle, const tsl256x_integ_e time) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_TIMING };
+  uint8_t data = handle->integ | time;
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(handle: %p, time: 0x%02X)", __func__, handle, time);
+  result = tsl2561_write(handle, &cmd, 1);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    return result;
+  }
+  result = tsl2561_write(handle, &data, 1);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+    return result;
+  }
+  handle->integ  = time;
+  ESP_LOGD(TAG, "--> REG: 0x%02X", data);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -372,9 +416,8 @@ esp_err_t tsl2561_getPower(const tsl2561_t handle, bool* on) {
     ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  ESP_LOGD(TAG, "--> POWER: 0x%02X", data);
   *on = data & 0x03 ? true : false;
-  
+  ESP_LOGD(TAG, "--> POWER: 0x%02X", data);
   ESP_LOGI(TAG, "--%s(on: %d) - result: %d", __func__, *on, result);
   return result;
 }
@@ -387,16 +430,45 @@ esp_err_t tsl2561_getPower(const tsl2561_t handle, bool* on) {
  * @return esp_err_t 
  */
 esp_err_t tsl2561_getId(const tsl2561_t handle, uint8_t *id) {
-  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_ID };
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s()", __func__);
   result = tsl2561_readId(handle);
-  if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
-    return result;
+  if (result == ESP_OK) {
+    *id = handle->partno | handle->revno;
   }
-  *id = handle->partno;
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+/**
+ * @brief Set Gain
+ * 
+ * @param handle 
+ * @param gain 
+ * @return esp_err_t 
+ */
+esp_err_t tsl2561_setGain(const tsl2561_t handle, const tsl256x_gain_e gain) {
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(gain: 0x%02X)", __func__, gain);
+  result = tsl2561_writeGain(handle, gain);
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+/**
+ * @brief Set Integration Time
+ * 
+ * @param handle 
+ * @param time 
+ * @return esp_err_t 
+ */
+esp_err_t tsl2561_setIntegrationTime(const tsl2561_t handle, const tsl256x_integ_e time) {
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(time: %d)", __func__, time);
+  result = tsl2561_WriteIntegrationTime(handle, time);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -418,6 +490,7 @@ esp_err_t tsl2561_Init(tsl2561_t* const handle_ptr) {
       ESP_LOGE(TAG, "[%s] tsl2561_init() - result: %d.", __func__, result);
       return result;
     }
+
     result = tsl2561_readId(*handle_ptr);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] tsl2561_readId() - result: %d.", __func__, result);
