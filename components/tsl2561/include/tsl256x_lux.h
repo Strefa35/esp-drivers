@@ -64,24 +64,31 @@
 #define K1C 0x0043 // 0.130 * 2^RATIO_SCALE
 #define B1C 0x0204 // 0.0315 * 2^LUX_SCALE
 #define M1C 0x01ad // 0.0262 * 2^LUX_SCALE
+
 #define K2C 0x0085 // 0.260 * 2^RATIO_SCALE
 #define B2C 0x0228 // 0.0337 * 2^LUX_SCALE
 #define M2C 0x02c1 // 0.0430 * 2^LUX_SCALE
+
 #define K3C 0x00c8 // 0.390 * 2^RATIO_SCALE
 #define B3C 0x0253 // 0.0363 * 2^LUX_SCALE
 #define M3C 0x0363 // 0.0529 * 2^LUX_SCALE
+
 #define K4C 0x010a // 0.520 * 2^RATIO_SCALE
 #define B4C 0x0282 // 0.0392 * 2^LUX_SCALE
 #define M4C 0x03df // 0.0605 * 2^LUX_SCALE
+
 #define K5C 0x014d // 0.65 * 2^RATIO_SCALE
 #define B5C 0x0177 // 0.0229 * 2^LUX_SCALE
 #define M5C 0x01dd // 0.0291 * 2^LUX_SCALE
+
 #define K6C 0x019a // 0.80 * 2^RATIO_SCALE
 #define B6C 0x0101 // 0.0157 * 2^LUX_SCALE
 #define M6C 0x0127 // 0.0180 * 2^LUX_SCALE
+
 #define K7C 0x029a // 1.3 * 2^RATIO_SCALE
 #define B7C 0x0037 // 0.00338 * 2^LUX_SCALE
 #define M7C 0x002b // 0.00260 * 2^LUX_SCALE
+
 #define K8C 0x029a // 1.3 * 2^RATIO_SCALE
 #define B8C 0x0000 // 0.000 * 2^LUX_SCALE
 #define M8C 0x0000 // 0.000 * 2^LUX_SCALE

@@ -88,9 +88,14 @@
 /* GPIO Configuration */
 #define TSL256X_SDA_GPIO              13
 #define TSL256X_SCL_GPIO              16
+#define TSL256X_INT_GPIO              36
+
+#define TSL256X_INTR_FLAG_DEFAULT     0
 
 //#define TSL256X_I2C_CLK_FREQUENCY    400000
 #define TSL256X_I2C_CLK_FREQUENCY     100000
+
+typedef void(*tsl256x_isr_f)(tsl256x_t handle);
 
 typedef enum {
   PART_TSL2560CS        = 0x00,
@@ -104,10 +109,12 @@ typedef enum {
 typedef struct tsl256x_s {
   i2c_master_bus_handle_t bus;
   i2c_master_dev_handle_t device;
+  float                   ratio;
   tsl256x_gain_e          gain;
   tsl256x_integ_e         integ;
   tsl256x_partno_e        partno;
   uint8_t                 revno;
+  tsl256x_isr_f           isr_notify;
 } tsl256x_s;
 
 
@@ -134,10 +141,68 @@ static void tsl256x_print(const tsl256x_t handle) {
   ESP_LOGD(TAG, "   bus: %p", handle->bus);
   ESP_LOGD(TAG, "device: %p", handle->device);
   ESP_LOGD(TAG, "partno: %d", handle->partno);
+  ESP_LOGD(TAG, " ratio: %f", handle->ratio);
   ESP_LOGD(TAG, " revno: %d", handle->revno);
   ESP_LOGD(TAG, "  gain: %d", handle->gain);
   ESP_LOGD(TAG, " integ: %d", handle->integ);
   ESP_LOGI(TAG, "--%s()", __func__);
+}
+
+static void tsl256x_isrHandler(void* arg) {
+  tsl256x_t handle = (tsl256x_t) arg;
+
+  if (handle && handle->isr_notify) {
+    handle->isr_notify(handle);
+  }
+}
+
+static esp_err_t tsl256x_initIsr(tsl256x_t handle, tsl256x_isr_f fn) {
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
+  handle->isr_notify = fn;
+  if (fn) { // register ISR
+    
+    gpio_config_t int_conf = {
+      .intr_type = GPIO_INTR_ANYEDGE,
+      .mode = GPIO_MODE_INPUT,
+      .pin_bit_mask = (1ULL << TSL256X_INT_GPIO),
+      .pull_down_en = 0,
+      .pull_up_en = 1
+    };
+
+    result = gpio_config(&int_conf);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_config() - failed: %d.", __func__, result);
+      return result;
+    }
+    result = gpio_install_isr_service(TSL256X_INTR_FLAG_DEFAULT);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_install_isr_service() - failed: %d.", __func__, result);
+      return result;
+    }
+    result = gpio_isr_handler_add(TSL256X_INT_GPIO, tsl256x_isrHandler, (void*) handle);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_isr_handler_add() - failed: %d.", __func__, result);
+      return result;
+    }
+
+  } else { // unregister ISR
+    result = gpio_isr_handler_remove(TSL256X_INT_GPIO);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_isr_handler_remove() - failed: %d.", __func__, result);
+      return result;
+    }
+    result = gpio_intr_disable(TSL256X_INT_GPIO);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_intr_disable() - failed: %d.", __func__, result);
+      return result;
+    }
+    //gpio_uninstall_isr_service();
+  }
+
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
 }
 
 /**
@@ -195,7 +260,7 @@ static esp_err_t tsl256x_init(tsl256x_t* const handle_ptr) {
 static esp_err_t tsl256x_done(tsl256x_t handle) {
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s()", __func__);
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
 
   if (handle->device) {
     result = i2c_master_bus_rm_device(handle->device);
@@ -510,6 +575,10 @@ static esp_err_t tsl256x_calculateLux(const tsl256x_t handle, const uint16_t ch0
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, ch0: %d, ch1: %d)", __func__, handle, ch0, ch1);
+
+  handle->ratio = ((float) ch1 / (float) ch0);
+  ESP_LOGD(TAG, "--> RATIO: %f [ch0: %d, ch1: %d]", handle->ratio, ch0, ch1);
+
   switch (handle->integ) {
     case INTEG_13MS: {
       chScale = CHSCALE_TINT0;
