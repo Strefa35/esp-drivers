@@ -1,5 +1,5 @@
 /**
- * @file tsl256x.c
+ * @file tsl2561.c
  * @author A.Czerwinski@pistacje.net
  * @brief Light to digital converter for TSL2560 & TSL2561
  * @version 0.1
@@ -21,132 +21,45 @@
 #include "esp_log.h"
 #include "esp_err.h"
 
-#include "tsl256x.h"
-#include "tsl256x_lux.h"
+#include "tsl2561.h"
+#include "tsl2561_reg.h"
+#include "tsl2561_type.h"
+#include "tsl2561_lux.h"
 
 
-// TSL256X
-#define TSL256X_PORT_NUMBER           0
-#define TSL256X_SLAVE_ADDR            0x39
+// TSL2561
+#define TSL2561_PORT_NUMBER           (CONFIG_TSL2561_PORT_NUMBER)
+#define TSL2561_SLAVE_ADDR            (CONFIG_TSL2561_SLAVE_ADDR)
 
-
-/* ======================== */
-/*     Register Address     */
-/* ======================== */
-
-#define TSL256X_REG_COMMAND           0x80
-
-/* 0x00 - Control of basic functions  */
-#define	TSL256X_REG_CONTROL           0x00
-
-/* 0x01 - Integration time/gain control */
-#define	TSL256X_REG_TIMING            0x01
-
-/* 0x02 - Low byte of low interrupt threshold   */ 
-/* 0x03 - High byte of low interrupt threshold  */
-#define	TSL256X_REG_THRESH_L          0x02
-
-/* 0x04 - Low byte of high interrupt threshold  */
-/* 0x05 - High byte of high interrupt threshold */
-#define	TSL256X_REG_THRESH_H          0x04
-
-/* Interrupt */
-#define	TSL256X_REG_INTCTL            0x06
-
-/* Part number/ Rev ID - */
-#define	TSL256X_REG_ID                0x0A
-
-/* 0x0C - Low byte of ADC channel 0   */
-/* 0x0D - High byte of ADC channel 0  */
-#define	TSL256X_REG_DATA_0            0x0C
-
-/* 0x0E - Low byte of ADC channel 1   */
-/* 0x0F - High byte of ADC channel 1  */
-#define	TSL256X_REG_DATA_1            0x0E
-
-/* ======================== */
-/*     Command Register     */
-/* ======================== */
-#define TSL256X_CMD_INTR_CLEAR        0x40
-#define TSL256X_CMD_WORD_PROTOCOL     0x20
-#define TSL256X_CMD_BLOCK_PROTOCOL    0x10
-
-/* ======================== */
-/*     Control Register     */
-/* ======================== */
-#define TSL256X_CTRL_POWER_ON         0x03
-#define TSL256X_CTRL_POWER_OFF        0x00
-
-/* ======================== */
-/*     Timing Register      */
-/* ======================== */
-#define TSL256X_TIMING_GAIN           0x10
-#define TSL256X_TIMING_MANUAL         0x80
-#define TSL256X_TIMING_INTEGRATE      0x03
-
-/* ======================== */
-/*     Interrupt Register   */
-/* ======================== */
-#define TSL256X_INTR_DISABLE          0x00
-#define TSL256X_INTR_LEVEL            0x10
-#define TSL256X_INTR_SMB_ALERT        0x20
-#define TSL256X_INTR_TEST_MODE        0x30
-
-#define TSL256X_INTR_EVERY_ADC          0x00
-#define TSL256X_INTR_OUTSIDE_THRESHOLD  0x01
+#define TSL2561_I2C_CLK_FREQUENCY     (CONFIG_TSL2561_I2C_CLK_FREQUENCY * 1000) // in kHz
 
 /* GPIO Configuration */
-#define TSL256X_SDA_GPIO              13
-#define TSL256X_SCL_GPIO              16
-#define TSL256X_INT_GPIO              36
+#define TSL2561_SDA_GPIO              (CONFIG_TSL2561_SDA_GPIO)
+#define TSL2561_SCL_GPIO              (CONFIG_TSL2561_SCL_GPIO)
+#define TSL2561_INT_GPIO              (CONFIG_TSL2561_INT_GPIO)
 
-#define TSL256X_INTR_FLAG_DEFAULT     0
-
-//#define TSL256X_I2C_CLK_FREQUENCY    400000
-#define TSL256X_I2C_CLK_FREQUENCY     100000
+#define TSL2561_INTR_FLAG_DEFAULT     (0)
 
 
-typedef enum {
-  PART_TSL2560CS        = 0x00,
-  PART_TSL2561CS        = 0x10,
-  PART_TSL2560T_FN_CL   = 0x40,
-  PART_TSL2561T_FN_CL   = 0x50,
-
-  PART_TSL256X_UNKNOWN  = 0xFF
-} tsl256x_partno_e;
-
-typedef struct tsl256x_s {
-  i2c_master_bus_handle_t bus;
-  i2c_master_dev_handle_t device;
-  float                   ratio;
-  tsl256x_gain_e          gain;
-  tsl256x_integ_e         integ;
-  tsl256x_partno_e        partno;
-  uint8_t                 revno;
-  tsl256x_isr_f           isr_notify;
-  tsl256x_threshold_t     threshold;
-} tsl256x_s;
-
-
-static const i2c_master_bus_config_t tsl256x_bus_config = {
+static const i2c_master_bus_config_t tsl2561_bus_config = {
   .clk_source = I2C_CLK_SRC_DEFAULT,
-  .i2c_port = TSL256X_PORT_NUMBER,
-  .scl_io_num = TSL256X_SCL_GPIO,
-  .sda_io_num = TSL256X_SDA_GPIO,
+  .i2c_port = TSL2561_PORT_NUMBER,
+  .scl_io_num = TSL2561_SCL_GPIO,
+  .sda_io_num = TSL2561_SDA_GPIO,
   .glitch_ignore_cnt = 7,
   .flags.enable_internal_pullup = true,
 };
 
-static const i2c_device_config_t tsl256x_dev_cfg = {
+static const i2c_device_config_t tsl2561_dev_cfg = {
   .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-  .device_address = TSL256X_SLAVE_ADDR,
-  .scl_speed_hz = TSL256X_I2C_CLK_FREQUENCY,
+  .device_address = TSL2561_SLAVE_ADDR,
+  .scl_speed_hz = TSL2561_I2C_CLK_FREQUENCY,
 };
 
 
 static const char* TAG = "ESP::DRV::TLS256X";
 
-static void tsl256x_print(const tsl256x_t handle) {
+static void tsl2561_print(const tsl2561_t handle) {
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
   ESP_LOGD(TAG, "       bus: %p", handle->bus);
   ESP_LOGD(TAG, "    device: %p", handle->device);
@@ -160,15 +73,15 @@ static void tsl256x_print(const tsl256x_t handle) {
   ESP_LOGI(TAG, "--%s()", __func__);
 }
 
-static void tsl256x_isrHandler(void* arg) {
-  tsl256x_t handle = (tsl256x_t) arg;
+static void tsl2561_isrHandler(void* arg) {
+  tsl2561_t handle = (tsl2561_t) arg;
 
   if (handle && handle->isr_notify) {
     handle->isr_notify(handle);
   }
 }
 
-static esp_err_t tsl256x_setIsr(tsl256x_t handle, tsl256x_isr_f fn) {
+static esp_err_t tsl2561_setIsr(tsl2561_t handle, tsl2561_isr_f fn) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, fn: %p)", __func__, handle, fn);
@@ -178,7 +91,7 @@ static esp_err_t tsl256x_setIsr(tsl256x_t handle, tsl256x_isr_f fn) {
     gpio_config_t int_conf = {
       .intr_type = GPIO_INTR_ANYEDGE,
       .mode = GPIO_MODE_INPUT,
-      .pin_bit_mask = (1ULL << TSL256X_INT_GPIO),
+      .pin_bit_mask = (1ULL << TSL2561_INT_GPIO),
       .pull_down_en = 0,
       .pull_up_en = 1
     };
@@ -188,24 +101,24 @@ static esp_err_t tsl256x_setIsr(tsl256x_t handle, tsl256x_isr_f fn) {
       ESP_LOGE(TAG, "[%s] gpio_config() - failed: %d.", __func__, result);
       return result;
     }
-    result = gpio_install_isr_service(TSL256X_INTR_FLAG_DEFAULT);
+    result = gpio_install_isr_service(TSL2561_INTR_FLAG_DEFAULT);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] gpio_install_isr_service() - failed: %d.", __func__, result);
       return result;
     }
-    result = gpio_isr_handler_add(TSL256X_INT_GPIO, tsl256x_isrHandler, (void*) handle);
+    result = gpio_isr_handler_add(TSL2561_INT_GPIO, tsl2561_isrHandler, (void*) handle);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] gpio_isr_handler_add() - failed: %d.", __func__, result);
       return result;
     }
 
   } else { // unregister ISR
-    result = gpio_isr_handler_remove(TSL256X_INT_GPIO);
+    result = gpio_isr_handler_remove(TSL2561_INT_GPIO);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] gpio_isr_handler_remove() - failed: %d.", __func__, result);
       return result;
     }
-    result = gpio_intr_disable(TSL256X_INT_GPIO);
+    result = gpio_intr_disable(TSL2561_INT_GPIO);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] gpio_intr_disable() - failed: %d.", __func__, result);
       return result;
@@ -222,8 +135,8 @@ static esp_err_t tsl256x_setIsr(tsl256x_t handle, tsl256x_isr_f fn) {
  * 
  * @return esp_err_t 
  */
-static esp_err_t tsl256x_init(tsl256x_t* const handle_ptr) {
-  tsl256x_t handle = NULL;
+static esp_err_t tsl2561_init(tsl2561_t* const handle_ptr) {
+  tsl2561_t handle = NULL;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle_ptr: %p)", __func__, handle_ptr);
@@ -233,26 +146,26 @@ static esp_err_t tsl256x_init(tsl256x_t* const handle_ptr) {
     return ESP_FAIL;
   }
 
-  handle = malloc(sizeof(tsl256x_s));
+  handle = malloc(sizeof(tsl2561_s));
   if (handle == NULL) {
     ESP_LOGE(TAG, "[%s] Memory allocation problem", __func__);
     result = ESP_ERR_NO_MEM;
   }
 
-  memset(handle, 0x00, sizeof(tsl256x_s));
+  memset(handle, 0x00, sizeof(tsl2561_s));
 
   ESP_LOGD(TAG, "Initialize I2C bus");
-  result = i2c_new_master_bus(&tsl256x_bus_config, &(handle->bus));
+  result = i2c_new_master_bus(&tsl2561_bus_config, &(handle->bus));
   if (result != ESP_OK) {
     ESP_LOGE(TAG, "[%s] i2c_new_master_bus() failed: %d.", __func__, result);
     free(handle);
     return result;
   }
 
-  ESP_ERROR_CHECK(i2c_master_probe(handle->bus, TSL256X_SLAVE_ADDR, -1));
+  ESP_ERROR_CHECK(i2c_master_probe(handle->bus, TSL2561_SLAVE_ADDR, -1));
 
   ESP_LOGD(TAG, "Add device to the bus");
-  result = i2c_master_bus_add_device(handle->bus, &tsl256x_dev_cfg, &(handle->device));
+  result = i2c_master_bus_add_device(handle->bus, &tsl2561_dev_cfg, &(handle->device));
 
   if (result != ESP_OK) {
     ESP_LOGE(TAG, "[%s] i2c_master_bus_add_device() failed: %d.", __func__, result);
@@ -269,7 +182,7 @@ static esp_err_t tsl256x_init(tsl256x_t* const handle_ptr) {
  * 
  * @return esp_err_t 
  */
-static esp_err_t tsl256x_done(tsl256x_t handle) {
+static esp_err_t tsl2561_done(tsl2561_t handle) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
@@ -302,7 +215,7 @@ static esp_err_t tsl256x_done(tsl256x_t handle) {
  * @param data_size - size of buffer / data to read
  * @return esp_err_t 
  */
-static esp_err_t tsl256x_read(const tsl256x_t handle, uint8_t* data_ptr, size_t data_size) {
+static esp_err_t tsl2561_read(const tsl2561_t handle, uint8_t* data_ptr, size_t data_size) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, data_ptr: %p, data_size: %d)", __func__, handle, data_ptr, data_size);
@@ -321,7 +234,7 @@ static esp_err_t tsl256x_read(const tsl256x_t handle, uint8_t* data_ptr, size_t 
  * @param data_size - size of buffer / data to send
  * @return esp_err_t 
  */
-static esp_err_t tsl256x_write(const tsl256x_t handle, const uint8_t* data_ptr, const size_t data_size) {
+static esp_err_t tsl2561_write(const tsl2561_t handle, const uint8_t* data_ptr, const size_t data_size) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, data_ptr: %p, data_size: %d)", __func__, handle, data_ptr, data_size);
@@ -339,20 +252,20 @@ static esp_err_t tsl256x_write(const tsl256x_t handle, const uint8_t* data_ptr, 
  * @param handle
  * @return esp_err_t
  */
-static esp_err_t tsl256x_readId(const tsl256x_t handle) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_ID };
+static esp_err_t tsl2561_readId(const tsl2561_t handle) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_ID };
   uint8_t data;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_read(handle, &data, 1);
+  result = tsl2561_read(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_read() - failed: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
   handle->partno  = data & 0xF0;
@@ -368,24 +281,24 @@ static esp_err_t tsl256x_readId(const tsl256x_t handle) {
  * @param handle
  * @return esp_err_t
  */
-static esp_err_t tsl256x_readTiming(const tsl256x_t handle) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_TIMING };
+static esp_err_t tsl2561_readTiming(const tsl2561_t handle) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_TIMING };
   uint8_t data;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_read(handle, &data, 1);
+  result = tsl2561_read(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_read() - failed: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  handle->gain  = data & TSL256X_TIMING_GAIN;
-  handle->integ = data & TSL256X_TIMING_INTEGRATE;
+  handle->gain  = data & TSL2561_TIMING_GAIN;
+  handle->integ = data & TSL2561_TIMING_INTEGRATE;
   ESP_LOGD(TAG, "--> REG: 0x%02X", data);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
@@ -398,20 +311,20 @@ static esp_err_t tsl256x_readTiming(const tsl256x_t handle) {
  * @param gain
  * @return esp_err_t
  */
-static esp_err_t tsl256x_writeGain(const tsl256x_t handle, const tsl256x_gain_e gain) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_TIMING };
+static esp_err_t tsl2561_writeGain(const tsl2561_t handle, const tsl2561_gain_e gain) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_TIMING };
   uint8_t data = handle->integ | gain;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, gain: 0x%02X)", __func__, handle, gain);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_write(handle, &data, 1);
+  result = tsl2561_write(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
     return result;
   }
   handle->gain  = gain;
@@ -427,20 +340,20 @@ static esp_err_t tsl256x_writeGain(const tsl256x_t handle, const tsl256x_gain_e 
  * @param time
  * @return esp_err_t
  */
-static esp_err_t tsl256x_writeIntegrationTime(const tsl256x_t handle, const tsl256x_integ_e time) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_TIMING };
+static esp_err_t tsl2561_writeIntegrationTime(const tsl2561_t handle, const tsl2561_integ_e time) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_TIMING };
   uint8_t data = handle->integ | time;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, time: 0x%02X)", __func__, handle, time);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_write(handle, &data, 1);
+  result = tsl2561_write(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
     return result;
   }
   handle->integ  = time;
@@ -455,135 +368,138 @@ static esp_err_t tsl256x_writeIntegrationTime(const tsl256x_t handle, const tsl2
  * @param handle
  * @return esp_err_t
  */
-static esp_err_t tsl256x_readData(const tsl256x_t handle, uint16_t* data0, uint16_t* data1) {
-  uint8_t cmd_ch0 = { TSL256X_REG_COMMAND | TSL256X_CMD_WORD_PROTOCOL | TSL256X_REG_DATA_0 };
-  uint8_t cmd_ch1 = { TSL256X_REG_COMMAND | TSL256X_CMD_WORD_PROTOCOL | TSL256X_REG_DATA_1 };
+static esp_err_t tsl2561_readChannels(const tsl2561_t handle) {
+  uint8_t cmd_ch0 = { TSL2561_REG_COMMAND | TSL2561_CMD_WORD_PROTOCOL | TSL2561_REG_DATA_0 };
+  uint8_t cmd_ch1 = { TSL2561_REG_COMMAND | TSL2561_CMD_WORD_PROTOCOL | TSL2561_REG_DATA_1 };
   uint8_t data_ch0[2];
   uint8_t data_ch1[2];
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
 
+  /* Clear previous values */
+  handle->broadband = 0;
+  handle->infrared = 0;
+
   /* Read data from channel 0 */
-  result = tsl256x_write(handle, &cmd_ch0, 1);
+  result = tsl2561_write(handle, &cmd_ch0, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd_ch0: 0x%02X) - failed: %d.", __func__, cmd_ch0, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd_ch0: 0x%02X) - failed: %d.", __func__, cmd_ch0, result);
     return result;
   }
-  result = tsl256x_read(handle, data_ch0, 2);
+  result = tsl2561_read(handle, data_ch0, 2);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_read() - failed: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  ESP_LOGD(TAG, "--> DATA[0]: 0x%02X 0x%02X", data_ch0[0], data_ch0[1]);
-  *data0 = (data_ch0[1] << 8) | data_ch0[0];
+  handle->broadband = (data_ch0[1] << 8) | data_ch0[0];
+  ESP_LOGD(TAG, "--> CH0: 0x%04X [%d]", handle->broadband, handle->broadband);
 
   /* Read data from channel 1 */
-  result = tsl256x_write(handle, &cmd_ch1, 1);
+  result = tsl2561_write(handle, &cmd_ch1, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd_ch1: 0x%02X) - failed: %d.", __func__, cmd_ch1, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd_ch1: 0x%02X) - failed: %d.", __func__, cmd_ch1, result);
     return result;
   }
-  result = tsl256x_read(handle, data_ch1, 2);
+  result = tsl2561_read(handle, data_ch1, 2);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_read() - failed: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
-  ESP_LOGD(TAG, "--> DATA[1]: 0x%02X 0x%02X", data_ch1[0], data_ch1[1]);
-  *data1 = (data_ch1[1] << 8) | data_ch1[0];
+  handle->infrared = (data_ch1[1] << 8) | data_ch1[0];
+  ESP_LOGD(TAG, "--> CH1: 0x%04X [%d]", handle->infrared, handle->infrared);
 
-  ESP_LOGD(TAG, "--> DATA -> ch0: %d, ch1: %d", *data0, *data1);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-static esp_err_t tsl256x_writeInterrupt(const tsl256x_t handle, const bool enable) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_INTCTL };
+static esp_err_t tsl2561_writeInterrupt(const tsl2561_t handle, const bool enable) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_INTCTL };
   uint8_t data = 0;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, enable: %d)", __func__, handle, enable);
   if (enable) { // Enable interrupt
-    data = TSL256X_INTR_LEVEL | TSL256X_INTR_OUTSIDE_THRESHOLD;
-    //data = TSL256X_INTR_SMB_ALERT | 0x03;
+    data = TSL2561_INTR_LEVEL | TSL2561_INTR_OUTSIDE_THRESHOLD;
+    //data = TSL2561_INTR_SMB_ALERT | TSL2561_INTR_OUTSIDE_THRESHOLD;
   } else { // Disable interrupt
-    data = TSL256X_INTR_DISABLE;
+    data = TSL2561_INTR_DISABLE;
   }
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_write(handle, &data, 1);
+  result = tsl2561_write(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
     return result;
   }
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-static esp_err_t tsl256x_clearInterrupt(const tsl256x_t handle) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_INTCTL | TSL256X_CMD_INTR_CLEAR};
+static esp_err_t tsl2561_clearInterrupt(const tsl2561_t handle) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_INTCTL | TSL2561_CMD_INTR_CLEAR};
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-static esp_err_t tsl256x_writeThreshold(const tsl256x_t handle, const tsl256x_threshold_t* threshold) {
+static esp_err_t tsl2561_writeThreshold(const tsl2561_t handle, const tsl2561_threshold_t* threshold) {
   bool enable = threshold ? true : false;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, threshold: %p)", __func__, handle, threshold);
   if (threshold) {
-    uint8_t cmd_min = { TSL256X_REG_COMMAND | TSL256X_CMD_WORD_PROTOCOL | TSL256X_REG_THRESH_L };
-    uint8_t cmd_max = { TSL256X_REG_COMMAND | TSL256X_CMD_WORD_PROTOCOL | TSL256X_REG_THRESH_H };
+    uint8_t cmd_min = { TSL2561_REG_COMMAND | TSL2561_CMD_WORD_PROTOCOL | TSL2561_REG_THRESH_L };
+    uint8_t cmd_max = { TSL2561_REG_COMMAND | TSL2561_CMD_WORD_PROTOCOL | TSL2561_REG_THRESH_H };
     uint8_t data_min[2] = { threshold->min & 0x00FF, (threshold->min & 0xFF00) >> 8 };
     uint8_t data_max[2] = { threshold->max & 0x00FF, (threshold->max & 0xFF00) >> 8 };
     
     /* Write threshold min & max to the Interrupt Threshold Register */
-    result = tsl256x_write(handle, &cmd_min, 1);
+    result = tsl2561_write(handle, &cmd_min, 1);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_write(cmd_min: 0x%02X) - failed: %d.", __func__, cmd_min, result);
+      ESP_LOGE(TAG, "[%s] tsl2561_write(cmd_min: 0x%02X) - failed: %d.", __func__, cmd_min, result);
       return result;
     }
-    result = tsl256x_write(handle, data_min, 2);
+    result = tsl2561_write(handle, data_min, 2);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_write(data_min: 0x%02X%02X) - failed: %d.", __func__, data_min[0], data_min[1], result);
+      ESP_LOGE(TAG, "[%s] tsl2561_write(data_min: 0x%02X%02X) - failed: %d.", __func__, data_min[0], data_min[1], result);
       return result;
     }
-    result = tsl256x_write(handle, &cmd_max, 1);
+    result = tsl2561_write(handle, &cmd_max, 1);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_write(cmd_max: 0x%02X) - failed: %d.", __func__, cmd_max, result);
+      ESP_LOGE(TAG, "[%s] tsl2561_write(cmd_max: 0x%02X) - failed: %d.", __func__, cmd_max, result);
       return result;
     }
-    result = tsl256x_write(handle, data_max, 2);
+    result = tsl2561_write(handle, data_max, 2);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_write(data_max: 0x%02X%02X) - failed: %d.", __func__, data_max[0], data_max[1], result);
+      ESP_LOGE(TAG, "[%s] tsl2561_write(data_max: 0x%02X%02X) - failed: %d.", __func__, data_max[0], data_max[1], result);
       return result;
     }
   }
-  result = tsl256x_writeInterrupt(handle, enable);
+  result = tsl2561_writeInterrupt(handle, enable);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_writeInterrupt(enable: %d) - failed: %d.", __func__, enable, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_writeInterrupt(enable: %d) - failed: %d.", __func__, enable, result);
     return result;
   }
-  result = tsl256x_clearInterrupt(handle);
+  result = tsl2561_clearInterrupt(handle);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-static esp_err_t tsl256x_getFactor(const tsl256x_t handle, const uint32_t ratio, uint32_t* b, uint32_t* m) {
+static esp_err_t tsl2561_getFactor(const tsl2561_t handle, const uint32_t ratio, uint32_t* b, uint32_t* m) {
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s(handle: %p, ratio: %ld)", __func__, handle, ratio);
+  ESP_LOGI(TAG, "++%s(handle: %p, ratio: %f)", __func__, handle, handle->ratio);
   switch (handle->partno) {
     case PART_TSL2560CS:
     case PART_TSL2561CS: {
@@ -658,21 +574,21 @@ static esp_err_t tsl256x_getFactor(const tsl256x_t handle, const uint32_t ratio,
  * @brief Calculating Lux
  * 
  * @param handle 
- * @param data0 
- * @param data1 
- * @param lux 
  * @return esp_err_t 
  */
-static esp_err_t tsl256x_calculateLux(const tsl256x_t handle, const uint16_t ch0, const uint16_t ch1, uint32_t* lux) {
+static esp_err_t tsl2561_calculateLux(const tsl2561_t handle) {
   uint32_t chScale;
   uint32_t channel0;
   uint32_t channel1;
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s(handle: %p, ch0: %d, ch1: %d)", __func__, handle, ch0, ch1);
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
 
-  handle->ratio = ((float) ch1 / (float) ch0);
-  ESP_LOGD(TAG, "--> RATIO: %f [ch0: %d, ch1: %d]", handle->ratio, ch0, ch1);
+  if (handle->broadband == 0) {
+    ESP_LOGE(TAG, "[%s] Invalid Part Number Identification: 0x%02X ", __func__, handle->partno);
+    return ESP_FAIL;
+  }
+  ESP_LOGD(TAG, "--> RATIO: %f [ch0: %d, ch1: %d]", handle->ratio, handle->broadband, handle->infrared);
 
   switch (handle->integ) {
     case INTEG_13MS: {
@@ -696,33 +612,41 @@ static esp_err_t tsl256x_calculateLux(const tsl256x_t handle, const uint16_t ch0
   }
 
   // scale the channel values
-  channel0 = (ch0 * chScale) >> CH_SCALE;
-  channel1 = (ch1 * chScale) >> CH_SCALE;  
+  channel0 = (handle->broadband * chScale) >> CH_SCALE;
+  channel1 = (handle->infrared * chScale) >> CH_SCALE;  
 
   // find the ratio of the channel values (Channel1/Channel0)
   // protect against divide by zero
-  uint32_t ratio1 = 0;
+  uint32_t ratio = 0;
   if (channel0 != 0) {
-    ratio1 = (channel1 << (RATIO_SCALE + 1)) / channel0;
+    ratio = (channel1 << (RATIO_SCALE + 1)) / channel0;
   }
   // round the ratio value
-  uint32_t ratio = (ratio1 + 1) >> 1;
+  ratio = (ratio + 1) >> 1;
+
   uint32_t b;
   uint32_t m;
 
-  result = tsl256x_getFactor(handle, ratio, &b, &m);
+  result = tsl2561_getFactor(handle, ratio, &b, &m);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_getFactor() - failed: %d", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_getFactor() - failed: %d", __func__, result);
     return result;
   }
 
-  uint32_t temp = ((channel0 * b) - (channel1 * m));
+  uint32_t lux = ((channel0 * b) - (channel1 * m));
 
   // round lsb (2^(LUX_SCALE−1))
-  temp += (1 << (LUX_SCALE - 1));
+  lux += (1 << (LUX_SCALE - 1));
 
   // strip off fractional portion
-  *lux = temp >> LUX_SCALE;
+  handle->lux = lux >> LUX_SCALE;
+
+  /* protect against divade by 0 */
+  if (handle->broadband != 0) {
+    handle->ratio = (float) handle->infrared / (float) handle->broadband;
+  } else {
+    handle->ratio = 0;
+  }
 
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
@@ -738,15 +662,15 @@ static esp_err_t tsl256x_calculateLux(const tsl256x_t handle, const uint16_t ch0
  * @param on 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_setPower(const tsl256x_t handle, const bool on) {
+esp_err_t tsl2561_setPower(const tsl2561_t handle, const bool on) {
   uint8_t cmd[] = { 
-    TSL256X_REG_COMMAND | TSL256X_REG_CONTROL, 
-    on == true ? TSL256X_CTRL_POWER_ON : TSL256X_CTRL_POWER_OFF
+    TSL2561_REG_COMMAND | TSL2561_REG_CONTROL, 
+    on == true ? TSL2561_CTRL_POWER_ON : TSL2561_CTRL_POWER_OFF
   };
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_write(handle, cmd, 2);
+  result = tsl2561_write(handle, cmd, 2);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -757,20 +681,20 @@ esp_err_t tsl256x_setPower(const tsl256x_t handle, const bool on) {
  * @param handle 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_getPower(const tsl256x_t handle, bool* on) {
-  uint8_t cmd = { TSL256X_REG_COMMAND | TSL256X_REG_CONTROL };
+esp_err_t tsl2561_getPower(const tsl2561_t handle, bool* on) {
+  uint8_t cmd = { TSL2561_REG_COMMAND | TSL2561_REG_CONTROL };
   uint8_t data;
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_write(handle, &cmd, 1);
+  result = tsl2561_write(handle, &cmd, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
     return result;
   }
-  result = tsl256x_read(handle, &data, 1);
+  result = tsl2561_read(handle, &data, 1);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_read() - failed: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_read() - failed: %d.", __func__, result);
     return result;
   }
   *on = data & 0x03 ? true : false;
@@ -786,11 +710,11 @@ esp_err_t tsl256x_getPower(const tsl256x_t handle, bool* on) {
  * @param data 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_getId(const tsl256x_t handle, uint8_t *id) {
+esp_err_t tsl2561_getId(const tsl2561_t handle, uint8_t *id) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_readId(handle);
+  result = tsl2561_readId(handle);
   if (result == ESP_OK) {
     *id = handle->partno | handle->revno;
   }
@@ -805,11 +729,11 @@ esp_err_t tsl256x_getId(const tsl256x_t handle, uint8_t *id) {
  * @param gain 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_setGain(const tsl256x_t handle, const tsl256x_gain_e gain) {
+esp_err_t tsl2561_setGain(const tsl2561_t handle, const tsl2561_gain_e gain) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, gain: 0x%02X)", __func__, handle, gain);
-  result = tsl256x_writeGain(handle, gain);
+  result = tsl2561_writeGain(handle, gain);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -821,11 +745,11 @@ esp_err_t tsl256x_setGain(const tsl256x_t handle, const tsl256x_gain_e gain) {
  * @param time 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_setIntegrationTime(const tsl256x_t handle, const tsl256x_integ_e time) {
+esp_err_t tsl2561_setIntegrationTime(const tsl2561_t handle, const tsl2561_integ_e time) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, time: %d)", __func__, handle, time);
-  result = tsl256x_writeIntegrationTime(handle, time);
+  result = tsl2561_writeIntegrationTime(handle, time);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -834,104 +758,127 @@ esp_err_t tsl256x_setIntegrationTime(const tsl256x_t handle, const tsl256x_integ
  * @brief Get current lux
  * 
  * @param handle 
+ * @param br - broadband (CH0)
+ * @param br - infrared (CH1)
  * @param lux 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_getLux(const tsl256x_t handle, uint32_t* lux) {
-  uint16_t data0 = 0;
-  uint16_t data1 = 0;
+esp_err_t tsl2561_getLux(const tsl2561_t handle, uint32_t* lux) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_readData(handle, &data0, &data1);
+  result = tsl2561_readChannels(handle);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl256x_readData() - result: %d.", __func__, result);
+    ESP_LOGE(TAG, "[%s] tsl2561_readChannels() - result: %d.", __func__, result);
     return result;
   }
-  result = tsl256x_calculateLux(handle, data0, data1, lux);
+  result = tsl2561_calculateLux(handle);
+  if (result == ESP_OK) {
+    *lux = handle->lux;
+  }
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-esp_err_t tsl256x_setThreshold(const tsl256x_t handle, const tsl256x_threshold_t* threshold) {
+esp_err_t tsl2561_getLight(const tsl2561_t handle, uint16_t* broadband, uint16_t* infrared, uint32_t* lux, float* ratio) {
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
+  result = tsl2561_readChannels(handle);
+  if (result != ESP_OK) {
+    ESP_LOGE(TAG, "[%s] tsl2561_readChannels() - result: %d.", __func__, result);
+    return result;
+  }
+  result = tsl2561_calculateLux(handle);
+  if (result == ESP_OK) {
+    *broadband  = handle->broadband;
+    *infrared   = handle->infrared;
+    *lux        = handle->lux;
+    *ratio      = handle->ratio;
+  }
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+esp_err_t tsl2561_setThreshold(const tsl2561_t handle, const tsl2561_threshold_t* threshold) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p, threshold: %p)", __func__, handle, threshold);
-  result = tsl256x_writeThreshold(handle, threshold);
+  result = tsl2561_writeThreshold(handle, threshold);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-esp_err_t tsl256x_RegisterIsr(tsl256x_t handle, tsl256x_isr_f fn) {
+esp_err_t tsl2561_RegisterIsr(tsl2561_t handle, tsl2561_isr_f fn) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_setIsr(handle, fn);
+  result = tsl2561_setIsr(handle, fn);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-esp_err_t tsl256x_UnregisterIsr(tsl256x_t handle) {
+esp_err_t tsl2561_UnregisterIsr(tsl2561_t handle) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_setIsr(handle, NULL);
+  result = tsl2561_setIsr(handle, NULL);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-esp_err_t tsl256x_ClearIsr(const tsl256x_t handle) {
+esp_err_t tsl2561_ClearIsr(const tsl2561_t handle) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_clearInterrupt(handle);
+  result = tsl2561_clearInterrupt(handle);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
 
 /**
- * @brief Initialize TSL256X driver
+ * @brief Initialize TSL2561 driver
  * 
  * @return esp_err_t 
  */
-esp_err_t tsl256x_Init(tsl256x_t* const handle_ptr) {
+esp_err_t tsl2561_Init(tsl2561_t* const handle_ptr) {
   esp_err_t result = ESP_OK;
 
-  esp_log_level_set(TAG, CONFIG_TSL256X_LOG_LEVEL);
+  esp_log_level_set(TAG, CONFIG_TSL2561_LOG_LEVEL);
 
   ESP_LOGI(TAG, "++%s(handle_ptr: %p)", __func__, handle_ptr);
   if (handle_ptr != NULL) {
-    result = tsl256x_init(handle_ptr);
+    result = tsl2561_init(handle_ptr);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_init() - result: %d.", __func__, result);
+      ESP_LOGE(TAG, "[%s] tsl2561_init() - result: %d.", __func__, result);
       return result;
     }
 
-    result = tsl256x_readId(*handle_ptr);
+    result = tsl2561_readId(*handle_ptr);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_readId() - result: %d.", __func__, result);
+      ESP_LOGE(TAG, "[%s] tsl2561_readId() - result: %d.", __func__, result);
       return result;
     }
 
-    result = tsl256x_readTiming(*handle_ptr);
+    result = tsl2561_readTiming(*handle_ptr);
     if (result != ESP_OK) {
-      ESP_LOGE(TAG, "[%s] tsl256x_readTiming() - result: %d.", __func__, result);
+      ESP_LOGE(TAG, "[%s] tsl2561_readTiming() - result: %d.", __func__, result);
       return result;
     }
 
-    tsl256x_print(*handle_ptr);
+    tsl2561_print(*handle_ptr);
 
   }
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
-esp_err_t tsl256x_Done(tsl256x_t handle) {
+esp_err_t tsl2561_Done(tsl2561_t handle) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl256x_done(handle);
+  result = tsl2561_done(handle);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }

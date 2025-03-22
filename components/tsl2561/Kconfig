@@ -1,38 +1,80 @@
-menu "TSL256X driver"
+menu "TSL2561 driver"
 
-    config TSL256X_ENABLE
-        bool "Enable CFG Controller"
-        default "n"
+    config TSL2561_PORT_NUMBER
+        int "Port number"
+        range 0 1
+        default 0 if IDF_TARGET_ESP32
         help
-            Enable TSL256X driver
+            Set port number used by TSL-2561.
 
-    choice TSL256X_LOG_LEVEL
+    config TSL2561_SLAVE_ADDR
+        int "Slave address"
+        default 57 if IDF_TARGET_ESP32
+        help
+            Set port number used by TSL-2561.
+            --------------
+            |  Hex | Dec |
+            +------+-----+
+            | 0x39 |  57 | <- default
+            | 0x29 |  41 |
+            | 0x49 |  73 |
+            --------------
+
+    config TSL2561_I2C_CLK_FREQUENCY
+        int "I2C clock frequency in kHz"
+        range 0 400
+        default 400 if IDF_TARGET_ESP32
+        help
+            Set clock frequency used by TSL-2561.
+
+    config TSL2561_SDA_GPIO
+        int "SDA GPIO number"
+        range 0 39
+        default 13 if IDF_TARGET_ESP32
+        help
+            Set the GPIO number used by TSL-2561 SDA.
+
+    config TSL2561_SCL_GPIO
+        int "SCL GPIO number"
+        range 0 39
+        default 16 if IDF_TARGET_ESP32
+        help
+            Set the GPIO number used by TSL-2561 SCL.
+
+    config TSL2561_INT_GPIO
+        int "INT GPIO number"
+        range 0 39
+        default 36 if IDF_TARGET_ESP32
+        help
+            Set the GPIO number used by TSL-2561 INT.
+
+    choice TSL2561_LOG_LEVEL
         bool "Log level"
-        default TSL256X_LOG_DEFAULT_LEVEL_INFO
+        default TSL2561_LOG_DEFAULT_LEVEL_INFO
         help
             Specify how much output to see in logs by default.
 
-        config TSL256X_LOG_DEFAULT_LEVEL_NONE
+        config TSL2561_LOG_DEFAULT_LEVEL_NONE
             bool "No output"
-        config TSL256X_LOG_DEFAULT_LEVEL_ERROR
+        config TSL2561_LOG_DEFAULT_LEVEL_ERROR
             bool "Error"
-        config TSL256X_LOG_DEFAULT_LEVEL_WARN
+        config TSL2561_LOG_DEFAULT_LEVEL_WARN
             bool "Warning"
-        config TSL256X_LOG_DEFAULT_LEVEL_INFO
+        config TSL2561_LOG_DEFAULT_LEVEL_INFO
             bool "Info"
-        config TSL256X_LOG_DEFAULT_LEVEL_DEBUG
+        config TSL2561_LOG_DEFAULT_LEVEL_DEBUG
             bool "Debug"
-        config TSL256X_LOG_DEFAULT_LEVEL_VERBOSE
+        config TSL2561_LOG_DEFAULT_LEVEL_VERBOSE
             bool "Verbose"
     endchoice
 
-    config TSL256X_LOG_LEVEL
+    config TSL2561_LOG_LEVEL
         int
-        default 0 if TSL256X_LOG_DEFAULT_LEVEL_NONE
-        default 1 if TSL256X_LOG_DEFAULT_LEVEL_ERROR
-        default 2 if TSL256X_LOG_DEFAULT_LEVEL_WARN
-        default 3 if TSL256X_LOG_DEFAULT_LEVEL_INFO
-        default 4 if TSL256X_LOG_DEFAULT_LEVEL_DEBUG
-        default 5 if TSL256X_LOG_DEFAULT_LEVEL_VERBOSE
+        default 0 if TSL2561_LOG_DEFAULT_LEVEL_NONE
+        default 1 if TSL2561_LOG_DEFAULT_LEVEL_ERROR
+        default 2 if TSL2561_LOG_DEFAULT_LEVEL_WARN
+        default 3 if TSL2561_LOG_DEFAULT_LEVEL_INFO
+        default 4 if TSL2561_LOG_DEFAULT_LEVEL_DEBUG
+        default 5 if TSL2561_LOG_DEFAULT_LEVEL_VERBOSE
 
 endmenu

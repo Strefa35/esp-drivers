@@ -1,16 +1,14 @@
 /**
- * @file tsl256x_lux.h
+ * @file tsl2561_lux.h
  * @author A.Czerwinski@pistacje.net
  * @brief Simplified Lux Calculation
- * @version 0.1
- * @date 2025-03-16
  * 
  * @copyright Copyright (c) 2025 4Embedded.Systems
  * 
  */
 
-#ifndef __TSL256X_LUX_H__
-#define __TSL256X_LUX_H__
+#ifndef __TSL2561_LUX_H__
+#define __TSL2561_LUX_H__
 
 
 /* ======================== */
@@ -94,4 +92,4 @@
 #define M8C 0x0000 // 0.000 * 2^LUX_SCALE
 
 
-#endif /* __TSL256X_LUX_H__ */
+#endif /* __TSL2561_LUX_H__ */
