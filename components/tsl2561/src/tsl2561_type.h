@@ -34,6 +34,8 @@ typedef struct tsl2561_s {
   uint32_t                lux;
   float                   ratio;
 
+  uint16_t                ms;
+
   tsl2561_isr_f           isr_notify;
   tsl2561_threshold_t     threshold;
 } tsl2561_s;
