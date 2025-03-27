@@ -31,10 +31,17 @@ typedef enum {
   INTEG_NA
 } tsl2561_integ_e;
 
+typedef enum {
+  CTRL_ISR_CLEAR,
+  CTRL_ISR_DISABLE,
+  CTRL_ISR_ENABLE,
+} tsl2561_ctrl_e;
+
 typedef struct {
   uint16_t  min;
   uint16_t  max;
 } tsl2561_threshold_t;
+
 
 struct tsl2561_s;
 typedef struct tsl2561_s* tsl2561_t;
@@ -49,13 +56,14 @@ esp_err_t tsl2561_SetIntegrationTime(const tsl2561_t handle, const tsl2561_integ
 esp_err_t tsl2561_GetLux(const tsl2561_t handle, uint32_t* lux);
 esp_err_t tsl2561_GetLight(const tsl2561_t handle, uint16_t* broadband, uint16_t* infrared, uint32_t* lux, float* ratio);
 
-esp_err_t tsl2561_SetIsrNotify(tsl2561_t handle, const tsl2561_isr_f fn);
+esp_err_t tsl2561_SetIsrNotify(const tsl2561_t handle, const tsl2561_isr_f fn);
 esp_err_t tsl2561_SetIsrThreshold(const tsl2561_t handle, const tsl2561_threshold_t* threshold);
-esp_err_t tsl2561_SetIsr(const tsl2561_t handle, const bool enable);
-esp_err_t tsl2561_ClearIsr(const tsl2561_t handle);
-esp_err_t tsl2561_SetIsrConfig(tsl2561_t handle, const bool enable);
+esp_err_t tsl2561_SetIsrControl(const tsl2561_t handle, const tsl2561_ctrl_e ctrl);
 
 esp_err_t tsl2561_GetId(const tsl2561_t handle, uint8_t* id);
+
+esp_err_t tsl2561_InitIsr(const tsl2561_t handle);
+esp_err_t tsl2561_DoneIsr(const tsl2561_t handle);
 
 esp_err_t tsl2561_Init(tsl2561_t* const handle);
 esp_err_t tsl2561_Done(tsl2561_t handle);

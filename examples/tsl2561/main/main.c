@@ -21,7 +21,7 @@
 #include "tsl2561.h"
 
 
-#define TSL2561_ISR_ENABLE
+static const bool TSL2561_ISR_ENABLE = false;
 
 
 #define TSL2561_TASK_NAME           "tsl2561-task"
@@ -52,8 +52,11 @@ typedef struct {
 
 static const char* TAG = "ESP::MAIN::TSL2561";
 
-
-
+/**
+ * @brief Interrupt notify function
+ * 
+ * @param handle 
+ */
 static void tsl2561_Interrupt(tsl2561_t handle) {
   msg_t msg = { 
     .type = MSG_TYPE_ISR,
@@ -62,6 +65,9 @@ static void tsl2561_Interrupt(tsl2561_t handle) {
   xQueueSendFromISR(tsl2561_msg_queue, &msg, NULL);
 }
 
+/**
+ * Send message to the thread
+ */
 static esp_err_t tsl2561_SendMsg(const msg_t* msg) {
   esp_err_t result = ESP_OK;
 
@@ -96,6 +102,8 @@ static void tsl2561_TaskFn(void* param) {
 
   ESP_LOGI(TAG, "++%s()", __func__);
 
+  ESP_LOGD(TAG, "[%s] Init TSL2561", __func__);
+
   ESP_ERROR_CHECK(tsl2561_Init(&tsl2561_hid));
   //ESP_ERROR_CHECK(tsl2561_SetPower(tsl2561_hid, true));
   ESP_ERROR_CHECK(tsl2561_GetPower(tsl2561_hid, &power));
@@ -103,52 +111,60 @@ static void tsl2561_TaskFn(void* param) {
   ESP_LOGD(TAG, "[%s] Power: %d", __func__, power);
   ESP_LOGD(TAG, "[%s]    Id: 0x%02X", __func__, id);
   
+  ESP_LOGD(TAG, "[%s] Get light from TSL2561", __func__);
+
   ESP_ERROR_CHECK(result = tsl2561_GetLight(tsl2561_hid, &broadband, &infrared, &lux, &ratio));
   ESP_LOGD(TAG, "[%s] BR: %d, IR: %d, LUX: %ld, ratio: %f", __func__, broadband, infrared, lux, ratio);
 
-#ifdef TSL2561_ISR_ENABLE
   uint16_t lux_threshold = 2000;
   tsl2561_threshold_t threshold = {
-    .min = 2000,
-    .max = 10000
+    .min = 0,
+    .max = 0
   };
 
-  msg.type = MSG_TYPE_ISR;
+  if (TSL2561_ISR_ENABLE == true) {
+    msg.type = MSG_TYPE_ISR;
 
-  if (broadband < lux_threshold) {
-    threshold.min = 0;
-    threshold.max = lux_threshold;
+    if (broadband < lux_threshold) {
+      threshold.min = 0;
+      threshold.max = lux_threshold;
+    } else {
+      threshold.min = lux_threshold;
+      threshold.max = 63000;
+    }
+  
+    ESP_LOGD(TAG, "[%s] Init ISR", __func__);
+    ESP_ERROR_CHECK(tsl2561_InitIsr(tsl2561_hid));
+  
+    ESP_LOGD(TAG, "[%s] Set ISR Notify fn", __func__);
+    ESP_ERROR_CHECK(tsl2561_SetIsrNotify(tsl2561_hid, tsl2561_Interrupt));
+  
+    ESP_LOGV(TAG, "[%s] THRESHOLD ==> min: %d, max: %d", __func__, threshold.min, threshold.max);
+    ESP_ERROR_CHECK(tsl2561_SetIsrThreshold(tsl2561_hid, &threshold));
+  
+    ESP_LOGD(TAG, "[%s] Enable ISR on TSL2561", __func__);
+    ESP_ERROR_CHECK(tsl2561_SetIsrControl(tsl2561_hid, CTRL_ISR_ENABLE));
+  
+    ESP_LOGD(TAG, "[%s] Clear ISR on TSL2561", __func__);
+    ESP_ERROR_CHECK(tsl2561_SetIsrControl(tsl2561_hid, CTRL_ISR_CLEAR));
   } else {
-    threshold.min = lux_threshold;
-    threshold.max = 0xFFFF;
+    msg.type = MSG_TYPE_POLLING;
+    tsl2561_SendMsg(&msg);
   }
 
-  ESP_ERROR_CHECK(tsl2561_ClearIsr(tsl2561_hid));
-
-  ESP_ERROR_CHECK(tsl2561_SetIsrConfig(tsl2561_hid, true));
-  ESP_ERROR_CHECK(tsl2561_SetIsrNotify(tsl2561_hid, tsl2561_Interrupt));
-
-  ESP_ERROR_CHECK(tsl2561_SetIsr(tsl2561_hid, false));
-  ESP_LOGV(TAG, "[%s] THRESHOLD ==> min: %d, max: %d", __func__, threshold.min, threshold.max);
-  ESP_ERROR_CHECK(tsl2561_SetIsrThreshold(tsl2561_hid, &threshold));
-  ESP_ERROR_CHECK(tsl2561_SetIsr(tsl2561_hid, true));
-  //ESP_ERROR_CHECK(tsl2561_ClearIsr(tsl2561_hid));
-
-#else
-  msg.type = MSG_TYPE_POLLING;
-  tsl2561_SendMsg(&msg);
-#endif
-
   while (loop) {
-    ESP_LOGD(TAG, "[%s] Wait...", __func__);
+    ESP_LOGD(TAG, "[%s] Wait...\n\n", __func__);
     if(xQueueReceive(tsl2561_msg_queue, &msg, portMAX_DELAY) == pdTRUE) {
 
       ESP_LOGD(TAG, "[%s] Message arrived: type: %d", __func__, msg.type);
       switch (msg.type) {
+
         case MSG_TYPE_ISR: {
           ESP_LOGD(TAG, "[%s] MSG_TYPE_ISR", __func__);
-          ESP_ERROR_CHECK(tsl2561_ClearIsr(tsl2561_hid));
 
+          ESP_LOGD(TAG, "[%s] Disable ISR on TSL2561", __func__);
+          ESP_ERROR_CHECK(tsl2561_SetIsrControl(tsl2561_hid, CTRL_ISR_DISABLE));
+        
           //result = tsl2561_GetLux(tsl2561_hid, &lux);
           result = tsl2561_GetLight(tsl2561_hid, &broadband, &infrared, &lux, &ratio);
           if (result == ESP_OK) {
@@ -159,18 +175,20 @@ static void tsl2561_TaskFn(void* param) {
               threshold.max = lux_threshold;
             } else {
               threshold.min = lux_threshold;
-              threshold.max = 0xFFFF;
+              threshold.max = 63000;
             }
 
-            ESP_ERROR_CHECK(tsl2561_SetIsr(tsl2561_hid, false));
             ESP_LOGV(TAG, "[%s] THRESHOLD ==> min: %d, max: %d", __func__, threshold.min, threshold.max);
             ESP_ERROR_CHECK(tsl2561_SetIsrThreshold(tsl2561_hid, &threshold));
-            ESP_ERROR_CHECK(tsl2561_SetIsr(tsl2561_hid, true));
-
-            //ESP_ERROR_CHECK(tsl2561_ClearIsr(tsl2561_hid));
           }
+          ESP_LOGD(TAG, "[%s] Enable ISR on TSL2561", __func__);
+          ESP_ERROR_CHECK(tsl2561_SetIsrControl(tsl2561_hid, CTRL_ISR_ENABLE));
+        
+          ESP_LOGD(TAG, "[%s] Clear ISR on TSL2561", __func__);
+          ESP_ERROR_CHECK(tsl2561_SetIsrControl(tsl2561_hid, CTRL_ISR_CLEAR));
           break;
         }
+
         case MSG_TYPE_POLLING: {
           ESP_LOGD(TAG, "[%s] MSG_TYPE_POLLING", __func__);
           //result = tsl2561_GetLux(tsl2561_hid, &lux);
@@ -193,12 +211,16 @@ static void tsl2561_TaskFn(void* param) {
   }
 
   ESP_ERROR_CHECK(tsl2561_SetPower(tsl2561_hid, false));
+  ESP_ERROR_CHECK(tsl2561_DoneIsr(tsl2561_hid));
   ESP_ERROR_CHECK(tsl2561_Done(tsl2561_hid));
 
   ESP_LOGI(TAG, "--%s()", __func__);
 }
 
-
+/**
+ * @brief Main function
+ * 
+ */
 void app_main(void)
 {
   esp_err_t result = ESP_OK;

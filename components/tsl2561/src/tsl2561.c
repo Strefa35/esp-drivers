@@ -100,7 +100,7 @@ static esp_err_t tsl2561_setIsrConfig(tsl2561_t handle, const bool enable) {
   if (enable) { // enable ISR
     
     gpio_config_t int_conf = {
-      .intr_type = GPIO_INTR_ANYEDGE,
+      .intr_type = GPIO_INTR_NEGEDGE,
       .mode = GPIO_MODE_INPUT,
       .pin_bit_mask = (1ULL << TSL2561_INT_GPIO),
       .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -120,6 +120,11 @@ static esp_err_t tsl2561_setIsrConfig(tsl2561_t handle, const bool enable) {
     result = gpio_isr_handler_add(TSL2561_INT_GPIO, tsl2561_isrHandler, (void*) handle);
     if (result != ESP_OK) {
       ESP_LOGE(TAG, "[%s] gpio_isr_handler_add() - failed: %d.", __func__, result);
+      return result;
+    }
+    result = gpio_intr_enable(TSL2561_INT_GPIO);
+    if (result != ESP_OK) {
+      ESP_LOGE(TAG, "[%s] gpio_intr_enable() - failed: %d.", __func__, result);
       return result;
     }
 
@@ -434,53 +439,53 @@ static esp_err_t tsl2561_readChannels(const tsl2561_t handle) {
 }
 
 /**
- * @brief Clear Interrupt bit in Command Register
+ * @brief Set interrupt control registers
  * 
  * @param handle 
+ * @param ctrl 
+ *  - CTRL_ISR_CLEAR - clear interrupt
+ *  - CTRL_ISR_DISABLE - disable interrupt
+ *  - CTRL_ISR_ENABLE - enable interrupt
  * @return esp_err_t 
  */
-static esp_err_t tsl2561_clearIsr(const tsl2561_t handle) {
-  uint8_t cmd = TSL2561_REG_COMMAND | TSL2561_REG_INTCTL;
-  esp_err_t result = ESP_OK;
-
-  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  ESP_LOGD(TAG, "[%s] -> cmd: 0x%02X", __func__, cmd);
-  result = tsl2561_write(handle, &cmd, 1);
-  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
-  return result;
-}
-
-/**
- * @brief Write Interrupt register
- * 
- * @param handle 
- * @param enable - true/false
- * @return esp_err_t 
- */
-static esp_err_t tsl2561_writeInterrupt(const tsl2561_t handle, const bool enable) {
+static esp_err_t tsl2561_setIsrControl(const tsl2561_t handle, const tsl2561_ctrl_e ctrl) {
   uint8_t cmd = TSL2561_REG_COMMAND | TSL2561_REG_INTCTL;
   uint8_t data = 0;
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s(handle: %p, enable: %d)", __func__, handle, enable);
-  if (enable) { // Enable interrupt
-    data = TSL2561_INTR_LEVEL | TSL2561_INTR_OUTSIDE_THRESHOLD;
-    //data = TSL2561_INTR_SMB_ALERT | TSL2561_INTR_OUTSIDE_THRESHOLD;
-  } else { // Disable interrupt
-    data = TSL2561_INTR_DISABLE;
+  ESP_LOGI(TAG, "++%s(handle: %p, ctrl: %d)", __func__, handle, ctrl);
+
+  switch (ctrl) {
+    case CTRL_ISR_CLEAR: {
+      cmd |= TSL2561_CMD_INTR_CLEAR;
+      ESP_LOGD(TAG, "[%s] -> cmd: 0x%02X", __func__, cmd);
+      result = tsl2561_write(handle, &cmd, 1);
+      break;
+    }
+    case CTRL_ISR_DISABLE:
+    case CTRL_ISR_ENABLE: {
+      if (ctrl == CTRL_ISR_ENABLE) {
+        data = TSL2561_INTR_LEVEL | TSL2561_INTR_OUTSIDE_THRESHOLD;
+        //data = TSL2561_INTR_SMB_ALERT | TSL2561_INTR_OUTSIDE_THRESHOLD;
+      } else {
+        data = TSL2561_INTR_DISABLE;
+      }
+      ESP_LOGD(TAG, "[%s] -> cmd: 0x%02X", __func__, cmd);
+      result = tsl2561_write(handle, &cmd, 1);
+      if (result != ESP_OK) {
+        ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
+        return result;
+      }
+      ESP_LOGD(TAG, "[%s] -> data: 0x%02X", __func__, data);
+      result = tsl2561_write(handle, &data, 1);
+      if (result != ESP_OK) {
+        ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
+        return result;
+      }
+      break;
+    }
   }
-  ESP_LOGD(TAG, "[%s] -> cmd: 0x%02X", __func__, cmd);
-  result = tsl2561_write(handle, &cmd, 1);
-  if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl2561_write(cmd: 0x%02X) - failed: %d.", __func__, cmd, result);
-    return result;
-  }
-  ESP_LOGD(TAG, "[%s] -> data: 0x%02X", __func__, data);
-  result = tsl2561_write(handle, &data, 1);
-  if (result != ESP_OK) {
-    ESP_LOGE(TAG, "[%s] tsl2561_write(data: 0x%02X) - failed: %d.", __func__, data, result);
-    return result;
-  }
+
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
@@ -947,7 +952,7 @@ esp_err_t tsl2561_GetLight(const tsl2561_t handle, uint16_t* broadband, uint16_t
  * @param fn 
  * @return esp_err_t 
  */
-esp_err_t tsl2561_SetIsrNotify(tsl2561_t handle, tsl2561_isr_f fn) {
+esp_err_t tsl2561_SetIsrNotify(const tsl2561_t handle, tsl2561_isr_f fn) {
   esp_err_t result = ESP_OK;
 
   ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
@@ -978,44 +983,50 @@ esp_err_t tsl2561_SetIsrThreshold(const tsl2561_t handle, const tsl2561_threshol
 }
 
 /**
- * @brief Enable/Disable interrupt
+ * @brief Set interrupt control registers
  * 
  * @param handle 
- * @param enable - true/false
+ * @param ctrl 
+ *  - CTRL_ISR_CLEAR - clear interrupt
+ *  - CTRL_ISR_DISABLE - disable interrupt
+ *  - CTRL_ISR_ENABLE - enable interrupt
  * @return esp_err_t 
  */
-esp_err_t tsl2561_SetIsr(const tsl2561_t handle, const bool enable) {
+esp_err_t tsl2561_SetIsrControl(const tsl2561_t handle, const tsl2561_ctrl_e ctrl) {
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s(handle: %p, enable: %d)", __func__, handle, enable);
-  result = tsl2561_writeInterrupt(handle, enable);
-  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
-  return result;
-}
-
-esp_err_t tsl2561_ClearIsr(const tsl2561_t handle) {
-  esp_err_t result = ESP_OK;
-
-  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
-  result = tsl2561_clearIsr(handle);
+  ESP_LOGI(TAG, "++%s(handle: %p, ctrl: %d)", __func__, handle, ctrl);
+  result = tsl2561_setIsrControl(handle, ctrl);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
 
 /**
- * @brief Set Interrupt configuration
+ * @brief Init Interrupt configuration
  * 
  * @param handle 
- * @param enable - true/false
- *  - true - enable interrupt controller
- *  - false - disable interrupt controller
  * @return esp_err_t 
  */
-esp_err_t tsl2561_SetIsrConfig(tsl2561_t handle, const bool enable) {
+esp_err_t tsl2561_InitIsr(const tsl2561_t handle) {
   esp_err_t result = ESP_OK;
 
-  ESP_LOGI(TAG, "++%s(handle: %p, enable: %d)", __func__, handle, enable);
-  result = tsl2561_setIsrConfig(handle, enable);
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
+  result = tsl2561_setIsrConfig(handle, true);
+  ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
+  return result;
+}
+
+/**
+ * @brief Done Interrupt configuration
+ * 
+ * @param handle 
+ * @return esp_err_t 
+ */
+esp_err_t tsl2561_DoneIsr(const tsl2561_t handle) {
+  esp_err_t result = ESP_OK;
+
+  ESP_LOGI(TAG, "++%s(handle: %p)", __func__, handle);
+  result = tsl2561_setIsrConfig(handle, false);
   ESP_LOGI(TAG, "--%s() - result: %d", __func__, result);
   return result;
 }
