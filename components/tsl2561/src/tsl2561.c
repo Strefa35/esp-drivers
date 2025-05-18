@@ -48,7 +48,7 @@ static const i2c_master_bus_config_t tsl2561_bus_config = {
   .i2c_port = TSL2561_PORT_NUMBER,
   .scl_io_num = TSL2561_SCL_GPIO,
   .sda_io_num = TSL2561_SDA_GPIO,
-  .glitch_ignore_cnt = 7,
+  .glitch_ignore_cnt = 0,
   .flags.enable_internal_pullup = true,
 };
 
@@ -100,7 +100,7 @@ static esp_err_t tsl2561_setIsrConfig(tsl2561_t handle, const bool enable) {
   if (enable) { // enable ISR
     
     gpio_config_t int_conf = {
-      .intr_type = GPIO_INTR_NEGEDGE,
+      .intr_type = GPIO_INTR_ANYEDGE,
       .mode = GPIO_MODE_INPUT,
       .pin_bit_mask = (1ULL << TSL2561_INT_GPIO),
       .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -466,7 +466,7 @@ static esp_err_t tsl2561_setIsrControl(const tsl2561_t handle, const tsl2561_ctr
     case CTRL_ISR_ENABLE: {
       if (ctrl == CTRL_ISR_ENABLE) {
         data = TSL2561_INTR_LEVEL | TSL2561_INTR_OUTSIDE_THRESHOLD;
-        //data = TSL2561_INTR_SMB_ALERT | TSL2561_INTR_OUTSIDE_THRESHOLD;
+        //data = TSL2561_INTR_LEVEL | TSL2561_INTR_EVERY_ADC;
       } else {
         data = TSL2561_INTR_DISABLE;
       }
